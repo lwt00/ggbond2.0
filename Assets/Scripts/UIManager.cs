@@ -953,6 +953,51 @@ public class UIManager : MonoBehaviour
         if (choiceLabelA != null) choiceLabelA.text = optA;
         if (choiceLabelB != null) choiceLabelB.text = optB;
         choicePanel.SetActive(true);
+        choicePanel.transform.SetAsLastSibling(); // 盖过对话框/HUD，避免标题和对话框文字重叠
+        ApplyChoiceLayout();
+    }
+
+    /// <summary>抉择弹窗自动排版（与结算界面同款方案）：
+    /// 标题在屏幕中上方（约 72% 高度），正文居中加宽（70% 屏宽），YES/NO 双按钮并排移到正文下方。</summary>
+    void ApplyChoiceLayout()
+    {
+        if (choiceTitle == null || choiceDesc == null) return;
+        var parentRT = choiceTitle.transform.parent as RectTransform;
+        if (parentRT == null) return;
+        float ph = parentRT.rect.height;
+        float pw = parentRT.rect.width;
+
+        // 标题：水平居中，约 72% 高度处
+        var trt = choiceTitle.rectTransform;
+        trt.anchorMin = trt.anchorMax = new Vector2(0.5f, 0.5f);
+        trt.pivot = new Vector2(0.5f, 0.5f);
+        trt.sizeDelta = new Vector2(pw * 0.7f, 70f);
+        trt.anchoredPosition = new Vector2(0f, ph * 0.22f);
+        choiceTitle.enableWordWrapping = true;
+
+        // 正文：屏幕正中略上，宽 70% 屏宽、高 400px，长文案不再溢出压按钮
+        var drt = choiceDesc.rectTransform;
+        drt.anchorMin = drt.anchorMax = new Vector2(0.5f, 0.5f);
+        drt.pivot = new Vector2(0.5f, 0.5f);
+        drt.sizeDelta = new Vector2(pw * 0.7f, 400f);
+        drt.anchoredPosition = new Vector2(0f, ph * 0.04f);
+        choiceDesc.enableWordWrapping = true;
+
+        // YES / NO 双按钮：并排在正文下方（中心下方 28% 屏高），左右各距中线 230px
+        if (choiceButtonA != null)
+        {
+            var art = choiceButtonA.transform as RectTransform;
+            art.anchorMin = art.anchorMax = new Vector2(0.5f, 0.5f);
+            art.pivot = new Vector2(0.5f, 0.5f);
+            art.anchoredPosition = new Vector2(-230f, -ph * 0.28f);
+        }
+        if (choiceButtonB != null)
+        {
+            var brt = choiceButtonB.transform as RectTransform;
+            brt.anchorMin = brt.anchorMax = new Vector2(0.5f, 0.5f);
+            brt.pivot = new Vector2(0.5f, 0.5f);
+            brt.anchoredPosition = new Vector2(230f, -ph * 0.28f);
+        }
     }
 
     void CloseChoicePanel()
