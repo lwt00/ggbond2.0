@@ -1998,7 +1998,7 @@ MonoBehaviour:
   loopVideo: {fileID: 32900000, guid: 7844ef415c136d749a7ef1f42088206c, type: 3}
   gameStartVideo: {fileID: 0}
   videoRawImage: {fileID: 0}
-  endingVideo1: {fileID: 0}
+  endingVideo1: {fileID: 32900000, guid: d213eab9deb6ed214d2288df14cc927d, type: 3}
   endingImage2: {fileID: 0}
   dangerMaxAlpha: 0.45
 --- !u!1 &1351092367

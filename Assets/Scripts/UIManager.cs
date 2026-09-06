@@ -108,7 +108,7 @@ public class UIManager : MonoBehaviour
     // 结局视频（复用 introPlayer / introVideoImage / introCoverOverlay 那套视频层）
     private bool endingVideoPlaying;      // 是否在播结局视频
     private System.Action endingVideoOnDone; // 结局视频播完后的回调（显示结局面板）
-    private float endingSkipGuard;        // 前 0.5 秒忽略跳过，避免进门按的 E 立刻把视频跳掉
+    private float endingSkipGuard;        // 前 3 秒忽略跳过（防误触，与过场动画同款规则）
     private float endingTimeout;          // 兜底计时：超时自动结束，防视频卡住一直黑屏
 
     // 「开始游戏」过场动画（独立路径）：3 秒后任意键可跳过（右下角淡入提示），
@@ -117,6 +117,8 @@ public class UIManager : MonoBehaviour
     private Coroutine startAnimCo;
     private TextMeshProUGUI startAnimSkipHint; // 「按任意键跳过」提示（自动生成，右下角）
     private const float StartAnimSkipAfter = 3f; // 前 3 秒不响应跳过（防误触）
+    private bool videoSkipHintOn;  // 跳过提示显示中（过场动画 / 结局视频共用）
+    private float videoSkipHintT;  // 提示显示累计时间
 
     // 结局图片（结局二用静态 CG；复用 introCoverOverlay 的黑色遮罩）
     private bool endingImagePlaying;       // 是否在显示结局图片
@@ -234,6 +236,13 @@ public class UIManager : MonoBehaviour
             return;
         }
 
+        // 跳过提示（过场动画 / 结局视频共用）：透明度呼吸由这里统一驱动
+        if (videoSkipHintOn)
+        {
+            videoSkipHintT += Time.unscaledDeltaTime;
+            UpdateStartAnimSkipHint(videoSkipHintT);
+        }
+
         // 第 1/3 段视频播放中：0.3 秒后任意键/点击跳过；超 15 秒强制结束（防视频卡住一直黑屏）
         if (introVideoPlaying)
         {
@@ -242,12 +251,12 @@ public class UIManager : MonoBehaviour
             else if (Input.anyKeyDown || Input.GetMouseButtonDown(0) || introTimeout > 15f) OnTimedVideoEnd(introPlayer);
         }
 
-        // 结局视频播放中：0.5 秒后任意键/点击跳过；超 30 秒强制结束（防视频卡住一直黑屏）
+        // 结局视频播放中：3 秒后任意键/点击跳过（防误触）；超 45 秒强制结束（防视频卡住一直黑屏）
         if (endingVideoPlaying)
         {
             endingTimeout += Time.unscaledDeltaTime;
             if (endingSkipGuard > 0f) endingSkipGuard -= Time.unscaledDeltaTime;
-            else if (Input.anyKeyDown || Input.GetMouseButtonDown(0) || endingTimeout > 30f) OnEndingVideoEnd();
+            else if (Input.anyKeyDown || Input.GetMouseButtonDown(0) || endingTimeout > 45f) OnEndingVideoEnd();
         }
 
         // 结局图片显示中：0.5 秒后任意键/点击关闭；超 30 秒自动关闭
@@ -333,7 +342,6 @@ public class UIManager : MonoBehaviour
     {
         if (startAnimPlaying) return; // 防重复触发
         if (introPlayer == null) BuildIntroVideo();
-        BuildStartAnimSkipHint();
 
         Time.timeScale = 0f;                              // 动画期间暂停游戏
         if (hudRoot != null) hudRoot.SetActive(false);
@@ -343,12 +351,7 @@ public class UIManager : MonoBehaviour
             introVideoImage.gameObject.SetActive(true);
             introVideoImage.transform.SetAsLastSibling(); // 动画盖在遮罩上面
         }
-        if (startAnimSkipHint != null)
-        {
-            startAnimSkipHint.gameObject.SetActive(true);
-            startAnimSkipHint.transform.SetAsLastSibling(); // 提示盖在动画上面
-            startAnimSkipHint.canvasRenderer.SetAlpha(0f);  // 从全透明开始，3 秒后淡入
-        }
+        ShowVideoSkipHint(true);                          // 提示盖在动画上面，3 秒后淡入
 
         introPlayer.clip = gameStartVideo;
         introPlayer.isLooping = false;                    // 播一遍就停
@@ -356,6 +359,29 @@ public class UIManager : MonoBehaviour
 
         if (startAnimCo != null) StopCoroutine(startAnimCo);
         startAnimCo = StartCoroutine(GameStartAnimRoutine((float)gameStartVideo.length));
+    }
+
+    /// <summary>开关「按任意键跳过」提示（过场动画 / 结局视频共用）：
+    /// 开 = 显示并从全透明重新计时（3 秒后淡入）；关 = 隐藏。</summary>
+    void ShowVideoSkipHint(bool on)
+    {
+        if (on)
+        {
+            BuildStartAnimSkipHint();
+            if (startAnimSkipHint != null)
+            {
+                startAnimSkipHint.gameObject.SetActive(true);
+                startAnimSkipHint.transform.SetAsLastSibling(); // 提示盖在视频上面
+                startAnimSkipHint.canvasRenderer.SetAlpha(0f);  // 从全透明开始，3 秒后淡入
+            }
+            videoSkipHintT = 0f;
+            videoSkipHintOn = true;
+        }
+        else
+        {
+            videoSkipHintOn = false;
+            if (startAnimSkipHint != null) startAnimSkipHint.gameObject.SetActive(false);
+        }
     }
 
     /// <summary>自动生成「按任意键跳过」提示：右下角，半透明白色，默认全透明（由播放协程控制透明度）。</summary>
@@ -432,13 +458,12 @@ public class UIManager : MonoBehaviour
         }
         if (!startAnimPlaying) yield break;
 
-        // 主循环：跳过计时 / 提示透明度 / 播完检测 / 看门狗，四件事同一循环处理
+        // 主循环：跳过计时 / 播完检测 / 看门狗（提示透明度由 Update 统一驱动）
         float elapsed = 0f;
         float limit = Mathf.Max(clipLength * 2f + 10f, 30f); // 28.8 秒动画 → 约 67.6 秒兜底
         while (true)
         {
             elapsed += Time.unscaledDeltaTime;
-            UpdateStartAnimSkipHint(elapsed);
 
             // 3 秒后任意键 / 鼠标点击 → 跳过动画直接进游戏（前 3 秒无效，防误触）
             if (elapsed >= StartAnimSkipAfter &&
@@ -467,7 +492,7 @@ public class UIManager : MonoBehaviour
         if (introPlayer != null) introPlayer.Stop();
         if (introVideoImage != null) introVideoImage.gameObject.SetActive(false);
         if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(false);
-        if (startAnimSkipHint != null) startAnimSkipHint.gameObject.SetActive(false);
+        ShowVideoSkipHint(false);
         StartGameplay();
     }
 
@@ -836,9 +861,10 @@ public class UIManager : MonoBehaviour
         introPlayer.clip = clip;
         introPlayer.isLooping = false;                // 播一遍就停
         endingVideoPlaying = true;
-        endingSkipGuard = 0.5f;                       // 前 0.5 秒忽略跳过，避免进门按的 E 误跳
+        endingSkipGuard = StartAnimSkipAfter;         // 前 3 秒忽略跳过，防误触（与过场动画同款规则）
         endingTimeout = 0f;
         endingVideoOnDone = () => ShowEnding(title, desc);
+        ShowVideoSkipHint(true);                      // 右下角「按任意键跳过」，3 秒后淡入
 
         if (introCo != null) StopCoroutine(introCo);
         introCo = StartCoroutine(EndingPlayRoutine());
@@ -871,6 +897,7 @@ public class UIManager : MonoBehaviour
         if (introPlayer != null) introPlayer.Stop();
         if (introVideoImage != null) introVideoImage.gameObject.SetActive(false);
         if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(false);
+        ShowVideoSkipHint(false);
         var cb = endingVideoOnDone; endingVideoOnDone = null;
         cb?.Invoke();
     }
