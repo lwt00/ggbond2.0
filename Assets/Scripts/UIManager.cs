@@ -70,7 +70,7 @@ public class UIManager : MonoBehaviour
     public bool playIntroVideo = true;
     [Tooltip("第 2 段：循环背景视频（第 1 段播完后，在开始界面后面循环播放，直到点「开始游戏」）。留空 = 无背景")]
     public VideoClip loopVideo;
-    [Tooltip("第 3 段：点「开始游戏」后播放的过场视频（几秒，播完进游戏）。留空 = 跳过")]
+    [Tooltip("第 3 段：点「开始游戏」后播放的过场动画（强制看完、不可跳过，播完进游戏）。留空 = 跳过")]
     public VideoClip gameStartVideo;
     [Tooltip("显示视频的 RawImage（可自己拖，放在按钮下面做背景）。留空 = 运行时自动建一个全屏的")]
     public RawImage videoRawImage;
@@ -110,6 +110,11 @@ public class UIManager : MonoBehaviour
     private System.Action endingVideoOnDone; // 结局视频播完后的回调（显示结局面板）
     private float endingSkipGuard;        // 前 0.5 秒忽略跳过，避免进门按的 E 立刻把视频跳掉
     private float endingTimeout;          // 兜底计时：超时自动结束，防视频卡住一直黑屏
+
+    // 「开始游戏」过场动画（独立路径）：强制看完、不响应跳过；只受自己的看门狗超时保护，
+    // 不走 introVideoPlaying 的 15 秒兜底强切，两者互不干扰
+    private bool startAnimPlaying;
+    private Coroutine startAnimCo;
 
     // 结局图片（结局二用静态 CG；复用 introCoverOverlay 的黑色遮罩）
     private bool endingImagePlaying;       // 是否在显示结局图片
@@ -310,13 +315,91 @@ public class UIManager : MonoBehaviour
 
         if (gameStartVideo != null)
         {
-            startStage = StartStage.GameIntro;
-            PlayTimedVideo(gameStartVideo);
+            StartGameStartAnim();   // 专属路径：强制看完的过场动画，播完自动 StartGameplay
         }
         else
         {
             StartGameplay();
         }
+    }
+
+    // ---------- 「开始游戏」过场动画（独立播放路径，强制看完） ----------
+
+    /// <summary>点「开始游戏」后播过场动画：全屏黑底播放，期间不响应任何跳过输入，
+    /// 播完（或看门狗超时）才真正进游戏。与开场/结局视频的状态机完全独立。</summary>
+    void StartGameStartAnim()
+    {
+        if (startAnimPlaying) return; // 防重复触发
+        if (introPlayer == null) BuildIntroVideo();
+
+        Time.timeScale = 0f;                              // 动画期间暂停游戏
+        if (hudRoot != null) hudRoot.SetActive(false);
+        if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(true);
+        if (introVideoImage != null)
+        {
+            introVideoImage.gameObject.SetActive(true);
+            introVideoImage.transform.SetAsLastSibling(); // 动画盖在遮罩上面
+        }
+
+        introPlayer.clip = gameStartVideo;
+        introPlayer.isLooping = false;                    // 播一遍就停
+        startAnimPlaying = true;
+
+        if (startAnimCo != null) StopCoroutine(startAnimCo);
+        startAnimCo = StartCoroutine(GameStartAnimRoutine((float)gameStartVideo.length));
+    }
+
+    /// <summary>等动画准备好 → 播放 → 等播完。看门狗超时 = 视频时长×2 + 10 秒，防卡屏但远大于正常时长，不会腰斩。</summary>
+    System.Collections.IEnumerator GameStartAnimRoutine(float clipLength)
+    {
+        introPlayer.Prepare();
+        float t = 0f;
+        while (!introPlayer.isPrepared && t < 8f)
+        {
+            t += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        if (!startAnimPlaying) yield break;               // 准备期间场景已卸载等异常情况
+
+        if (!introPlayer.isPrepared)
+        {
+            EndGameStartAnim();                           // 准备失败：直接进游戏，不卡屏
+            yield break;
+        }
+
+        introPlayer.Play();
+
+        // 等播放真正开始（首帧可能要几帧），再等它播完
+        float startWait = 0f;
+        while (!introPlayer.isPlaying && startWait < 3f)
+        {
+            startWait += Time.unscaledDeltaTime;
+            yield return null;
+        }
+        if (!startAnimPlaying) yield break;
+
+        float watchdog = 0f;
+        float limit = Mathf.Max(clipLength * 2f + 10f, 30f); // 28.8 秒动画 → 约 67.6 秒兜底
+        while (introPlayer.isPlaying && watchdog < limit)
+        {
+            watchdog += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        if (startAnimPlaying) EndGameStartAnim();
+    }
+
+    /// <summary>过场动画结束：收起视频层和遮罩，恢复正常游玩流程。</summary>
+    void EndGameStartAnim()
+    {
+        if (!startAnimPlaying) return;
+        startAnimPlaying = false;
+        startAnimCo = null;
+        if (introPlayer != null) introPlayer.Stop();
+        if (introVideoImage != null) introVideoImage.gameObject.SetActive(false);
+        if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(false);
+        StartGameplay();
     }
 
     /// <summary>播一段「会结束」的视频（第 1 段开场 / 第 3 段过场）。结束由 loopPointReached → OnTimedVideoEnd。</summary>

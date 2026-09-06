@@ -1014,7 +1014,7 @@ MonoBehaviour:
   introVideo: {fileID: 32900000, guid: 9f7ec58ce0ce231429d1862bb5a7f3be, type: 3}
   playIntroVideo: 1
   loopVideo: {fileID: 32900000, guid: 7844ef415c136d749a7ef1f42088206c, type: 3}
-  gameStartVideo: {fileID: 0}
+  gameStartVideo: {fileID: 32900000, guid: d1e12c4464f10d952e62e13eeab24fc7, type: 3}
   videoRawImage: {fileID: 0}
   endingVideo1: {fileID: 32900000, guid: 201c667eaa385f84ea4cf4672d33bf76, type: 3}
   endingImage2: {fileID: 21300000, guid: 60144bdefff1b2943bf38ec46c22ccb7, type: 3}
@@ -1996,7 +1996,7 @@ MonoBehaviour:
   introVideo: {fileID: 32900000, guid: 9f7ec58ce0ce231429d1862bb5a7f3be, type: 3}
   playIntroVideo: 1
   loopVideo: {fileID: 32900000, guid: 7844ef415c136d749a7ef1f42088206c, type: 3}
-  gameStartVideo: {fileID: 0}
+  gameStartVideo: {fileID: 32900000, guid: d1e12c4464f10d952e62e13eeab24fc7, type: 3}
   videoRawImage: {fileID: 0}
   endingVideo1: {fileID: 0}
   endingImage2: {fileID: 0}

@@ -31,3 +31,7 @@ sysinfo.txt
 # OS generated
 .DS_Store
 Thumbs.db
+
+# Project local
+.workbuddy/
+参考文件/
