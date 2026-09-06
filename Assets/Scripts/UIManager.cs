@@ -769,6 +769,53 @@ public class UIManager : MonoBehaviour
         if (endingPanel != null) endingPanel.SetActive(true);
         if (endingTitle != null) endingTitle.text = title;
         if (endingDesc != null) endingDesc.text = desc;
+        ApplyResultTextLayout(endingTitle, endingDesc);
+        ApplyResultButtonLayout(restartButton);
+    }
+
+    /// <summary>结算/过关文本自动排版：
+    /// 标题固定在屏幕中上方（约 72% 高度处），正文在屏幕正中、宽约 70% 屏宽。
+    /// 场景里手摆的小框（200×50）会让长文案竖条换行并溢出顶到标题上，这里统一覆盖修正。</summary>
+    void ApplyResultTextLayout(TMP_Text title, TMP_Text desc)
+    {
+        if (title == null || desc == null) return;
+        var parentRT = title.transform.parent as RectTransform;
+        if (parentRT == null) return;
+        float ph = parentRT.rect.height;
+        float pw = parentRT.rect.width;
+
+        // 标题：水平居中，垂直在约 72% 高度处（中心上方 22%）
+        var trt = title.rectTransform;
+        trt.anchorMin = trt.anchorMax = new Vector2(0.5f, 0.5f);
+        trt.pivot = new Vector2(0.5f, 0.5f);
+        trt.sizeDelta = new Vector2(pw * 0.7f, 60f);
+        trt.anchoredPosition = new Vector2(0f, ph * 0.22f);
+        title.alignment = TextAlignmentOptions.Center;
+        title.enableWordWrapping = true;
+
+        // 正文：屏幕正中，宽约 70% 屏宽、高 500px（文字实际在框内垂直居中）
+        var drt = desc.rectTransform;
+        drt.anchorMin = drt.anchorMax = new Vector2(0.5f, 0.5f);
+        drt.pivot = new Vector2(0.5f, 0.5f);
+        drt.sizeDelta = new Vector2(pw * 0.7f, 500f);
+        drt.anchoredPosition = Vector2.zero;
+        desc.alignment = TextAlignmentOptions.Center;
+        desc.enableWordWrapping = true;
+    }
+
+    /// <summary>结算/过关按钮自动排版：水平居中，放在正文框下方（中心下方 32% 屏高），
+    /// 避免被 500px 高的正文框挡住。</summary>
+    void ApplyResultButtonLayout(Button btn)
+    {
+        if (btn == null) return;
+        var parentRT = btn.transform.parent as RectTransform;
+        if (parentRT == null) return;
+        float ph = parentRT.rect.height;
+
+        var brt = btn.transform as RectTransform;
+        brt.anchorMin = brt.anchorMax = new Vector2(0.5f, 0.5f);
+        brt.pivot = new Vector2(0.5f, 0.5f);
+        brt.anchoredPosition = new Vector2(0f, -ph * 0.32f);
     }
 
     /// <summary>播结局：有视频就先播视频（播完/跳过 → 结局面板），没视频直接出结局面板。</summary>
@@ -888,6 +935,8 @@ public class UIManager : MonoBehaviour
         clearPanel.SetActive(true);
         if (clearTitle != null) clearTitle.text = title;
         if (clearDesc != null) clearDesc.text = desc;
+        ApplyResultTextLayout(clearTitle, clearDesc);
+        ApplyResultButtonLayout(nextButton);
     }
 
     /// <summary>显示「二选一」抉择弹窗并暂停游戏。点任一按钮恢复时间并回调对应分支。</summary>
