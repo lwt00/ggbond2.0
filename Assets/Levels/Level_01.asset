@@ -1,0 +1,105 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e3e696a671dba2498b1cc7b51834670, type: 3}
+  m_Name: Level_01
+  m_EditorClassIdentifier: 
+  displayName: "\u7B2C\u4E00\u5173"
+  description: 
+  rooms:
+  - name: "\u51FA\u751F\u623F"
+    center: {x: 0, y: 0}
+    size: {x: 16, y: 16}
+    isPortal: 0
+    hasNPC: 1
+    openings: 00000000
+    sugarCount: 1
+    enemySpawns: []
+    obstacles:
+    - center: {x: 3.4220653, y: 0.94868386}
+      size: {x: 1.1221254, y: 0.823216}
+    - center: {x: -0.4127903, y: 3.1903458}
+      size: {x: 1.5115294, y: 0.88628757}
+    - center: {x: -4.132015, y: 3.9211426}
+      size: {x: 1.2074784, y: 1.0154431}
+    - center: {x: -3.765008, y: 0.5232898}
+      size: {x: 1.4591229, y: 1.5022446}
+    - center: {x: -1.4376699, y: -4.395794}
+      size: {x: 1.3032932, y: 1.4643183}
+    - center: {x: 2.9913154, y: 3.2266278}
+      size: {x: 1.3047215, y: 1.341806}
+  - name: "\u5DE5\u4F5C\u533AA"
+    center: {x: 0, y: 22}
+    size: {x: 16, y: 16}
+    isPortal: 0
+    hasNPC: 0
+    openings: 0100000002000000
+    sugarCount: 1
+    enemySpawns:
+    - type: 0
+      count: 2
+    obstacles:
+    - center: {x: 2.1744034, y: 18.859806}
+      size: {x: 1.1919451, y: 0.8536928}
+    - center: {x: -3.0241714, y: 24.26871}
+      size: {x: 1.7655647, y: 0.98393893}
+    - center: {x: 0.6245712, y: 21.69722}
+      size: {x: 1.2643106, y: 1.8480265}
+    - center: {x: 2.924745, y: 26.191982}
+      size: {x: 0.82176435, y: 1.9871153}
+    - center: {x: 3.5381155, y: 23.22852}
+      size: {x: 0.8039083, y: 1.830079}
+    - center: {x: 0.34728336, y: 18.337475}
+      size: {x: 0.84069914, y: 1.1627414}
+  - name: "\u5DE5\u4F5C\u533AB"
+    center: {x: 22, y: 22}
+    size: {x: 16, y: 16}
+    isPortal: 0
+    hasNPC: 0
+    openings: 0300000001000000
+    sugarCount: 2
+    enemySpawns:
+    - type: 1
+      count: 2
+    - type: 2
+      count: 1
+    obstacles:
+    - center: {x: 25.257961, y: 20.044802}
+      size: {x: 1.8173395, y: 0.9655251}
+    - center: {x: 21.61871, y: 25.477896}
+      size: {x: 1.2835563, y: 0.9408173}
+    - center: {x: 18.10923, y: 26.25079}
+      size: {x: 1.8235579, y: 1.0539594}
+    - center: {x: 22.337044, y: 22.515587}
+      size: {x: 1.2518001, y: 0.89668983}
+    - center: {x: 24.280403, y: 24.40733}
+      size: {x: 0.84819895, y: 1.461229}
+    - center: {x: 19.446438, y: 21.02971}
+      size: {x: 1.5539982, y: 1.7431309}
+  - name: "\u5DE5\u4F5C\u533AC"
+    center: {x: 22, y: 0}
+    size: {x: 16, y: 16}
+    isPortal: 1
+    hasNPC: 0
+    openings: 00000000
+    sugarCount: 0
+    enemySpawns: []
+    obstacles: []
+  enemyMaxHp: 2
+  enemyChaseSpeed: 2.6
+  enemyDamage: 8
+  enemyBulletSpeed: 8
+  enemyTelegraphTime: 0.6
+  enemyAttackCooldown: 1.8
+  enemyHpGrowth: 0
+  alertRadius: 6
+  isFinalLevel: 0
+  npcDialogue: []
