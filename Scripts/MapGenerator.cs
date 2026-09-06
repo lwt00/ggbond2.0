@@ -66,6 +66,10 @@ public class MapGenerator : MonoBehaviour
     [Tooltip("祭坛颜色（和平模式出现在出口房）")]
     public Color altarColor = new Color(1f, 0.9f, 0.6f);
 
+    [Header("狂暴波（最终关 YES 分支：杀光才显现传送门）")]
+    [Tooltip("YES 后出口房刷出的守卫数量（「大量怪物」）")]
+    public int rageWaveCount = 10;
+
     [Header("美术贴图（拖拽赋值；留空 = 用纯色方块）")]
     [Tooltip("房间地板贴图（平铺）")]
     public Sprite floorSprite;
@@ -75,6 +79,8 @@ public class MapGenerator : MonoBehaviour
     public Sprite sugarSprite;
     [Tooltip("传送门贴图")]
     public Sprite portalSprite;
+    [Tooltip("最终关（第 3 关）传送门贴图（留空 = 复用上面的 portalSprite）")]
+    public Sprite finalPortalSprite;
     [Tooltip("NPC 贴图")]
     public Sprite npcSprite;
     [Tooltip("针管女朝左走的动画帧（多张则逐帧播放）；留空 = 纯色方块")]
@@ -515,26 +521,39 @@ public class MapGenerator : MonoBehaviour
 
     void SpawnPortal(Vector2 pos)
     {
-        portalObject = ColorBlockFactory.CreateBlock("Portal", pos, new Vector2(portalSize, portalSize), portalColor, transform, false, 2, sprite: portalSprite);
+        // 最终关的传送门用独立贴图（finalPortalSprite），没拖就复用通用 portalSprite
+        Sprite art = (levelData != null && levelData.isFinalLevel && finalPortalSprite != null)
+            ? finalPortalSprite : portalSprite;
+        portalObject = ColorBlockFactory.CreateBlock("Portal", pos, new Vector2(portalSize, portalSize), portalColor, transform, false, 2, sprite: art);
         var col = portalObject.AddComponent<CircleCollider2D>();
         col.isTrigger = true;
         col.radius = 1.4f; // 交互范围
         portalObject.AddComponent<Portal>();
+
+        // 最终关：传送门一开始隐藏（无贴图），等 YES 杀光守卫 / NO 直接显示后才显现
+        if (levelData != null && levelData.isFinalLevel)
+            portalObject.SetActive(false);
+    }
+
+    /// <summary>显示传送门（最终关 YES 清完守卫 / NO 直接显示时调用）。</summary>
+    public void ShowPortal()
+    {
+        if (portalObject != null) portalObject.SetActive(true);
     }
 
     void SpawnNPC(Vector2 pos)
     {
         var go = ColorBlockFactory.CreateBlock("NPC", pos, new Vector2(npcSize, npcSize), npcColor, transform, false, 3, sprite: npcSprite);
-        // 实体碰撞：挡住主角（半径 0.5 随 localScale=npcSize 缩放 → 直径 = npcSize，和建模一致）
-        var solid = go.AddComponent<CircleCollider2D>();
-        solid.radius = 0.5f;
-        // 交互触发：比实体略大，靠近就能按 E（同样随 npcSize 缩放）
+        // NPC 只是站桩贴图，不挡路：不加实体碰撞，只留一个交互触发器，靠近按 E 就能触发对话（可重叠走过去）
         var trigger = go.AddComponent<CircleCollider2D>();
         trigger.isTrigger = true;
-        trigger.radius = 1.6f;
+        trigger.radius = 2.0f; // 交互范围（随 localScale=npcSize 缩放；比之前略大，靠近就能按 E）
         var npc = go.AddComponent<NPC>();
+        // 剧情内容默认取代码里的 StoryDialogue.Level1；LevelData.npcDialogue 若在 Inspector 填了则覆盖
         if (levelData != null && levelData.npcDialogue != null && levelData.npcDialogue.Count > 0)
             npc.dialogue = levelData.npcDialogue.ToArray();
+        else
+            npc.dialogue = StoryDialogue.Level1;
     }
 
     /// <summary>最终抉择（只第 3 关）：触发区放在「倒数第二个房间 → 出口房」的过道中段，
@@ -569,26 +588,21 @@ public class MapGenerator : MonoBehaviour
         int exitIdx = currentRooms.IndexOf(portalRoomRef);
         int gateTier = Mathf.Max(0, exitIdx - 1); // 玩家在过道时 furthestReachedRoom = 出口前一房，保证怪物立即激活
 
-        var defs = new (EnemyType type, int hp)[]
-        {
-            (EnemyType.NeedleGirl, 5),
-            (EnemyType.Capsule, 5),
-            (EnemyType.GreenBag, 5),
-            (EnemyType.Antigen, 5),
-            (EnemyType.NeedleGirl, 5),
-        };
+        // 四种守卫轮换刷，共 rageWaveCount 只（默认 10 只 = 「大量怪物」）
+        var types = new EnemyType[] { EnemyType.NeedleGirl, EnemyType.Capsule, EnemyType.GreenBag, EnemyType.Antigen };
+        int count = Mathf.Max(1, rageWaveCount);
 
-        var points = ScatterContent(portalRoomRef, defs.Length);
+        var points = ScatterContent(portalRoomRef, count);
         var wave = new List<EnemyCell>();
-        for (int i = 0; i < defs.Length; i++)
+        for (int i = 0; i < count; i++)
         {
-            var e = SpawnEnemy(points[i], gateTier, defs[i].type, defs[i].hp);
+            var e = SpawnEnemy(points[i], gateTier, types[i % types.Length], 5);
             if (e != null) wave.Add(e);
         }
         if (GameManager.Instance != null) GameManager.Instance.RegisterRageWave(wave);
     }
 
-    /// <summary>NO（和平模式）：拆掉传送阵，在出口房摆祭坛。</summary>
+    /// <summary>[已停用] NO 分支现在直接显示传送门（ShowPortal），不再摆祭坛。此方法保留备用，不再被调用。</summary>
     public void SpawnPeaceMode()
     {
         if (portalObject != null) Destroy(portalObject);

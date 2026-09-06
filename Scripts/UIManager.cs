@@ -28,11 +28,13 @@ public class UIManager : MonoBehaviour
     public Color dialogueHintColor = new Color(0f, 0f, 0f, 0.5f);
 
     [Header("开始界面（手动创建）")]
-    [Tooltip("开始界面根物体（含开始/退出两个按钮）")]
+    [Tooltip("开始界面根物体（含 Play / 开始 / 退出 三个按钮）")]
     public GameObject startPanel;
-    [Tooltip("「开始游戏」按钮")]
+    [Tooltip("「Play」按钮（最先显示；点它播开场视频，播完再显示开始/退出）")]
+    public Button playButton;
+    [Tooltip("「开始」按钮（视频播完后显示；点它真正开始游戏）")]
     public Button startButton;
-    [Tooltip("「退出游戏」按钮")]
+    [Tooltip("「退出游戏」按钮（视频播完后显示）")]
     public Button quitButton;
 
     [Header("结算界面（手动创建）")]
@@ -61,9 +63,23 @@ public class UIManager : MonoBehaviour
     [Tooltip("选关列表（留空 = 默认生成 3 关 Level_1~Level_3）")]
     public List<LevelEntry> selectLevels = new List<LevelEntry>();
 
-    [Header("开场视频（点「开始游戏」后播放，留空 = 跳过）")]
-    [Tooltip("开场视频文件（.mp4 等）。留空 = 不播视频，直接开始游戏")]
+    [Header("开场视频（点「Play」后播放，留空 = 跳过）")]
+    [Tooltip("第 1 段：4 秒开场动画（点 Play 后播，屏幕干净）。留空 = 跳过")]
     public VideoClip introVideo;
+    [Tooltip("是否播放第 1 段开场视频（勾掉 = 跳过）")]
+    public bool playIntroVideo = true;
+    [Tooltip("第 2 段：循环背景视频（第 1 段播完后，在开始界面后面循环播放，直到点「开始游戏」）。留空 = 无背景")]
+    public VideoClip loopVideo;
+    [Tooltip("第 3 段：点「开始游戏」后播放的过场视频（几秒，播完进游戏）。留空 = 跳过")]
+    public VideoClip gameStartVideo;
+    [Tooltip("显示视频的 RawImage（可自己拖，放在按钮下面做背景）。留空 = 运行时自动建一个全屏的")]
+    public RawImage videoRawImage;
+
+    [Header("结局演出（结局一视频 / 结局二图片；留空 = 直接出结局面板）")]
+    [Tooltip("结局一：YES 分支（杀光守卫后进传送门）后播放的视频")]
+    public VideoClip endingVideo1;
+    [Tooltip("结局二：NO 分支（不打怪直接进传送门）后显示的图片（CG）")]
+    public Sprite endingImage2;
 
     [Header("危险警示（屏幕边缘泛红）")]
     [Tooltip("敌人逼近/警报升级时，屏幕边缘泛红的最大不透明度（0~1）")]
@@ -76,14 +92,31 @@ public class UIManager : MonoBehaviour
     private float messageTimer;
     private bool endingShown;
 
-    // 开场视频（点「开始游戏」后播；留空 = 跳过）
+    // 开场视频（点「Play」后播；留空 = 跳过）
+    private enum StartStage { Menu, Intro, Loop, GameIntro, Playing }
+    private StartStage startStage = StartStage.Menu; // 开始流程阶段
+
     private VideoPlayer introPlayer;
     private RawImage introVideoImage;
-    private Image introWhiteOverlay;   // 白色全屏遮罩（盖住地图 + 所有 UI）
-    private bool introVideoPlaying;
+    private Image introCoverOverlay;   // 黑色全屏遮罩（盖住地图 + 所有 UI，视频下方不露出东西）
+    private bool introVideoPlaying;    // 当前是否在播「会结束」的视频（第 1/3 段）
     private float introSkipGuard;
+    private float introTimeout;     // 视频播放兜底计时：超时自动结束，防止视频卡住一直黑屏
     private Coroutine introCo;      // 视频 prepare→play 协程
     private bool gameplayStarted;   // 本场景是否已经真正开始游戏（防止重复 StartLevel）
+
+    // 结局视频（复用 introPlayer / introVideoImage / introCoverOverlay 那套视频层）
+    private bool endingVideoPlaying;      // 是否在播结局视频
+    private System.Action endingVideoOnDone; // 结局视频播完后的回调（显示结局面板）
+    private float endingSkipGuard;        // 前 0.5 秒忽略跳过，避免进门按的 E 立刻把视频跳掉
+    private float endingTimeout;          // 兜底计时：超时自动结束，防视频卡住一直黑屏
+
+    // 结局图片（结局二用静态 CG；复用 introCoverOverlay 的黑色遮罩）
+    private bool endingImagePlaying;       // 是否在显示结局图片
+    private System.Action endingImageOnDone; // 图片看完后的回调（显示结局面板）
+    private float endingImageGuard;        // 前 0.5 秒忽略跳过，避免误触
+    private float endingImageTimeout;      // 兜底计时
+    private Image endingImageOverlay;      // 全屏图片 CG 层
 
     // 抉择弹窗（二选一：继续杀戮 / 消灭自己）
     private GameObject choicePanel;
@@ -155,10 +188,15 @@ public class UIManager : MonoBehaviour
         LevelFlow.skipStartPanel = false; // 只生效一次
         Time.timeScale = skipStart ? 1f : 0f;
         if (hudRoot != null) hudRoot.SetActive(skipStart);
-        if (startPanel != null) startPanel.SetActive(!skipStart);
+        if (startPanel != null) startPanel.SetActive(false); // 等第 1 段视频播完再显示
         if (endingPanel != null) endingPanel.SetActive(false);
         if (clearPanel != null) clearPanel.SetActive(false);
         if (selectPanel != null) selectPanel.SetActive(false);
+
+        // 开始界面等第 1 段视频播完才显示：一开始先藏起来，等点 Unity ▶ Play 后自动播开场
+        if (playButton != null) playButton.gameObject.SetActive(false);
+        if (startButton != null) startButton.gameObject.SetActive(false);
+        if (quitButton != null) quitButton.gameObject.SetActive(false);
 
         if (startButton != null) startButton.onClick.AddListener(OnStartGame);
         if (quitButton != null) quitButton.onClick.AddListener(OnQuitGame);
@@ -173,6 +211,11 @@ public class UIManager : MonoBehaviour
             gameplayStarted = true; // 跳过了开始界面，本场景已开玩
             GameManager.Instance.StartLevel();
         }
+        else
+        {
+            // 点 Unity ▶ Play 后：隐藏一切，自动播第 1 段开场视频（屏幕干净）
+            PlayIntroVideo();
+        }
     }
 
     void Update()
@@ -184,11 +227,28 @@ public class UIManager : MonoBehaviour
             return;
         }
 
-        // 开场视频播放中：0.3 秒后任意键/点击跳过
+        // 第 1/3 段视频播放中：0.3 秒后任意键/点击跳过；超 15 秒强制结束（防视频卡住一直黑屏）
         if (introVideoPlaying)
         {
+            introTimeout += Time.unscaledDeltaTime;
             if (introSkipGuard > 0f) introSkipGuard -= Time.unscaledDeltaTime;
-            else if (Input.anyKeyDown || Input.GetMouseButtonDown(0)) OnIntroVideoEnd(introPlayer);
+            else if (Input.anyKeyDown || Input.GetMouseButtonDown(0) || introTimeout > 15f) OnTimedVideoEnd(introPlayer);
+        }
+
+        // 结局视频播放中：0.5 秒后任意键/点击跳过；超 30 秒强制结束（防视频卡住一直黑屏）
+        if (endingVideoPlaying)
+        {
+            endingTimeout += Time.unscaledDeltaTime;
+            if (endingSkipGuard > 0f) endingSkipGuard -= Time.unscaledDeltaTime;
+            else if (Input.anyKeyDown || Input.GetMouseButtonDown(0) || endingTimeout > 30f) OnEndingVideoEnd();
+        }
+
+        // 结局图片显示中：0.5 秒后任意键/点击关闭；超 30 秒自动关闭
+        if (endingImagePlaying)
+        {
+            endingImageTimeout += Time.unscaledDeltaTime;
+            if (endingImageGuard > 0f) endingImageGuard -= Time.unscaledDeltaTime;
+            else if (Input.anyKeyDown || Input.GetMouseButtonDown(0) || endingImageTimeout > 30f) OnEndingImageEnd();
         }
 
         UpdateDialogue();
@@ -216,37 +276,73 @@ public class UIManager : MonoBehaviour
             OpenLevelSelect();
     }
 
+    /// <summary>点 Unity ▶ Play 后自动调用：隐藏一切（遮罩盖地图），播第 1 段开场视频。</summary>
+    void PlayIntroVideo()
+    {
+        // 隐藏所有 UI：开始界面、HUD（地图由黑色遮罩盖住）
+        if (playButton != null) playButton.gameObject.SetActive(false);
+        if (startPanel != null) startPanel.SetActive(false);
+        if (hudRoot != null) hudRoot.SetActive(false);
+        if (introPlayer == null) BuildIntroVideo();
+
+        // 第 1 段：开场视频（有才播，播完进循环阶段）
+        if (introVideo != null && playIntroVideo && !LevelFlow.introPlayed)
+        {
+            LevelFlow.introPlayed = true;
+            startStage = StartStage.Intro;
+            PlayTimedVideo(introVideo);
+        }
+        else
+        {
+            EnterLoopStage();
+        }
+    }
+
+    /// <summary>点「开始游戏」：隐藏开始界面和循环背景，播第 3 段过场视频 → 进游戏。</summary>
     void OnStartGame()
     {
         if (AudioManager.Instance != null) AudioManager.Instance.PlayUIClick();
-        PlayIntroVideo(); // 先播开场视频（留空则直接开始），视频结束后才起 BGM + 开玩
-    }
 
-    /// <summary>播放开场视频；没拖视频、或本次运行已经播过，就直接开始。</summary>
-    void PlayIntroVideo()
-    {
         if (startPanel != null) startPanel.SetActive(false);
+        if (startButton != null) startButton.gameObject.SetActive(false);
+        if (quitButton != null) quitButton.gameObject.SetActive(false);
+        if (introPlayer != null) introPlayer.Stop();
 
-        // 视频只在「最最开始第一次点开始游戏」播一次；重开 / 下一关再来都不再播
-        if (introVideo == null || LevelFlow.introPlayed) { StartGameplay(); return; }
-        LevelFlow.introPlayed = true; // 开始播就标记，本次运行不再重播
-
-        if (introPlayer == null) BuildIntroVideo();
-        Time.timeScale = 0f;                              // 视频期间：暂停游戏的一切
-        if (hudRoot != null) hudRoot.SetActive(false);    // 确保 HUD 不露出来
-        if (introWhiteOverlay != null) introWhiteOverlay.gameObject.SetActive(true); // 白布盖住地图和 UI
-        introVideoImage.gameObject.SetActive(true);       // 视频盖在最上层
-        introPlayer.clip = introVideo;
-        introVideoPlaying = true;
-        introSkipGuard = 0.3f; // 前 0.3 秒忽略跳过输入，避免点「开始游戏」的那一下误跳过
-
-        // 先 Prepare 再 Play：避免未准备好就 Play 导致视频不播 / loopPointReached 提前触发
-        if (introCo != null) StopCoroutine(introCo);
-        introCo = StartCoroutine(IntroPlayRoutine());
+        if (gameStartVideo != null)
+        {
+            startStage = StartStage.GameIntro;
+            PlayTimedVideo(gameStartVideo);
+        }
+        else
+        {
+            StartGameplay();
+        }
     }
 
-    /// <summary>等视频准备好后播放；准备失败/超时则直接开玩，绝不卡白屏。</summary>
-    System.Collections.IEnumerator IntroPlayRoutine()
+    /// <summary>播一段「会结束」的视频（第 1 段开场 / 第 3 段过场）。结束由 loopPointReached → OnTimedVideoEnd。</summary>
+    void PlayTimedVideo(VideoClip clip)
+    {
+        if (introPlayer == null) BuildIntroVideo();
+        Time.timeScale = 0f;                              // 视频期间暂停游戏
+        if (hudRoot != null) hudRoot.SetActive(false);
+        if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(true);
+        if (introVideoImage != null)
+        {
+            introVideoImage.gameObject.SetActive(true);
+            introVideoImage.transform.SetAsLastSibling(); // 视频盖在遮罩上面
+        }
+        introPlayer.clip = clip;
+        introPlayer.isLooping = false;                    // 播一遍就停
+        introVideoPlaying = true;
+        introSkipGuard = 0.3f;                            // 前 0.3 秒忽略跳过，避免误点
+        introTimeout = 0f;
+
+        if (introCo != null) StopCoroutine(introCo);
+        introCo = StartCoroutine(TimedPlayRoutine());
+    }
+
+    /// <summary>等视频准备好后播放；准备失败/超时则直接结束，绝不卡屏。</summary>
+    System.Collections.IEnumerator TimedPlayRoutine()
     {
         introPlayer.Prepare();
         float t = 0f;
@@ -256,83 +352,162 @@ public class UIManager : MonoBehaviour
             yield return null;
         }
 
-        // 用户在准备期间已经跳过（按了任意键）→ 不再播放，直接结束
-        if (!introVideoPlaying) yield break;
+        if (!introVideoPlaying) yield break;   // 准备期间被跳过
 
         if (introPlayer.isPrepared)
-        {
-            introPlayer.Play(); // 播完由 loopPointReached → OnIntroVideoEnd 进入游戏
-        }
+            introPlayer.Play();
         else
-        {
-            // 视频准备失败：不要卡住，直接开始游戏
-            OnIntroVideoEnd(introPlayer);
-        }
+            OnTimedVideoEnd(introPlayer);      // 准备失败：直接结束，不卡屏
     }
 
-    /// <summary>视频播完（或被跳过）后：起 BGM + 播开场对话 + 显示房间。</summary>
-    void OnIntroVideoEnd(VideoPlayer vp)
+    /// <summary>第 1/3 段视频播完（或被跳过）后：按当前阶段走下一步。</summary>
+    void OnTimedVideoEnd(VideoPlayer vp)
     {
+        // 结局视频播完（或被跳过）：走结局流程，别跟开场流程混淆
+        if (endingVideoPlaying) { OnEndingVideoEnd(); return; }
         if (!introVideoPlaying) return;
         introVideoPlaying = false;
         if (introPlayer != null) introPlayer.Stop();
-        StartGameplay();
+
+        if (startStage == StartStage.Intro)
+            EnterLoopStage();
+        else if (startStage == StartStage.GameIntro)
+            StartGameplay();
     }
 
-    /// <summary>真正开始游戏（起 BGM + 播本关开场对话）。</summary>
+    /// <summary>进入「循环背景 + 开始界面」阶段：显示 startPanel，第 2 段视频循环播放。</summary>
+    void EnterLoopStage()
+    {
+        startStage = StartStage.Loop;
+        Time.timeScale = 0f;   // 开始界面停留时暂停游戏
+
+        // 关遮罩：循环视频（或地图）自己作为开始界面背景
+        if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(false);
+
+        // 第 2 段：循环背景视频（有才播；isLooping 不会触发 loopPointReached）
+        if (loopVideo != null)
+        {
+            if (introPlayer == null) BuildIntroVideo();
+            if (introVideoImage != null)
+            {
+                introVideoImage.gameObject.SetActive(true);
+                introVideoImage.transform.SetAsLastSibling();
+            }
+            introPlayer.clip = loopVideo;
+            introPlayer.isLooping = true;   // 循环播放
+            if (introCo != null) StopCoroutine(introCo);
+            introCo = StartCoroutine(LoopPlayRoutine());
+        }
+        else if (introVideoImage != null)
+        {
+            introVideoImage.gameObject.SetActive(false);
+        }
+
+        ShowMenuButtons();
+    }
+
+    System.Collections.IEnumerator LoopPlayRoutine()
+    {
+        introPlayer.Prepare();
+        float t = 0f;
+        while (!introPlayer.isPrepared && t < 5f)
+        {
+            t += Time.unscaledDeltaTime;
+            yield return null;
+        }
+        if (introPlayer.isPrepared)
+            introPlayer.Play();
+    }
+
+    /// <summary>显示「开始游戏」「退出游戏」按钮（盖在循环视频上面），隐藏 Play。</summary>
+    void ShowMenuButtons()
+    {
+        if (startPanel != null)
+        {
+            startPanel.SetActive(true);
+            startPanel.transform.SetAsLastSibling(); // 按钮盖在循环视频上面
+        }
+        if (playButton != null) playButton.gameObject.SetActive(false);
+        if (startButton != null) startButton.gameObject.SetActive(true);
+        if (quitButton != null) quitButton.gameObject.SetActive(true);
+    }
+
+    /// <summary>真正开始游戏：隐藏视频/遮罩/开始界面，显示 HUD + 地图，起 BGM。</summary>
     void StartGameplay()
     {
-        if (gameplayStarted) return; // 防止视频结束 + 跳过 双重触发导致对话重复播
+        if (gameplayStarted) return; // 防止视频结束 + 跳过 双重触发
         gameplayStarted = true;
+        introVideoPlaying = false;
+        startStage = StartStage.Playing;
 
+        if (startPanel != null) startPanel.SetActive(false);
+        if (playButton != null) playButton.gameObject.SetActive(false);
+        if (startButton != null) startButton.gameObject.SetActive(false);
+        if (quitButton != null) quitButton.gameObject.SetActive(false);
+        if (introPlayer != null) introPlayer.Stop();
         if (introVideoImage != null) introVideoImage.gameObject.SetActive(false);
-        if (introWhiteOverlay != null) introWhiteOverlay.gameObject.SetActive(false);
+        if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(false);
         if (hudRoot != null) hudRoot.SetActive(true);
         Time.timeScale = 1f;
         if (GameManager.Instance != null) GameManager.Instance.StartLevel();
     }
 
-    /// <summary>运行时自动搭一个全屏视频层（RawImage + VideoPlayer）。</summary>
+    /// <summary>运行时搭视频层：黑色遮罩盖地图 + 视频层（优先用你拖的 videoRawImage，否则自动建一个全屏的）。</summary>
     void BuildIntroVideo()
     {
         if (canvas == null) EnsureCanvas();
 
-        // 白色全屏遮罩：盖住地图 + 所有 UI（HUD / 对话框 / 开始界面），保证视频下方不露出任何东西
-        var whiteGo = new GameObject("IntroWhite", typeof(RectTransform), typeof(Image));
-        whiteGo.transform.SetParent(canvas.transform, false);
-        var wrt = whiteGo.GetComponent<RectTransform>();
-        wrt.anchorMin = Vector2.zero;
-        wrt.anchorMax = Vector2.one;
-        wrt.offsetMin = Vector2.zero;
-        wrt.offsetMax = Vector2.zero;
-        whiteGo.transform.SetAsLastSibling();
-        introWhiteOverlay = whiteGo.GetComponent<Image>();
-        introWhiteOverlay.color = Color.white; // 纯白不透明
+        // 黑色全屏遮罩：盖住地图 + 所有 UI（HUD / 对话框 / 开始界面），保证视频下方不露出任何东西
+        if (introCoverOverlay == null)
+        {
+            var coverGo = new GameObject("IntroCover", typeof(RectTransform), typeof(Image));
+            coverGo.transform.SetParent(canvas.transform, false);
+            var wrt = coverGo.GetComponent<RectTransform>();
+            wrt.anchorMin = Vector2.zero;
+            wrt.anchorMax = Vector2.one;
+            wrt.offsetMin = Vector2.zero;
+            wrt.offsetMax = Vector2.zero;
+            coverGo.transform.SetAsLastSibling();
+            introCoverOverlay = coverGo.GetComponent<Image>();
+            introCoverOverlay.color = Color.black; // 纯黑不透明
+        }
 
-        // 视频层：盖在白色上面（最上层）
-        var go = new GameObject("IntroVideo", typeof(RectTransform), typeof(RawImage));
-        go.transform.SetParent(canvas.transform, false);
-        var rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = Vector2.zero;
-        rt.offsetMax = Vector2.zero;
-        go.transform.SetAsLastSibling(); // 视频盖在最上层
+        // 视频层：优先用你拖的 RawImage，否则自动建一个全屏的
+        if (introVideoImage == null)
+        {
+            if (videoRawImage != null)
+            {
+                introVideoImage = videoRawImage;
+                introVideoImage.color = Color.white;
+                introPlayer = videoRawImage.gameObject.GetComponent<VideoPlayer>();
+                if (introPlayer == null) introPlayer = videoRawImage.gameObject.AddComponent<VideoPlayer>();
+            }
+            else
+            {
+                var go = new GameObject("IntroVideo", typeof(RectTransform), typeof(RawImage));
+                go.transform.SetParent(canvas.transform, false);
+                var rt = go.GetComponent<RectTransform>();
+                rt.anchorMin = Vector2.zero;
+                rt.anchorMax = Vector2.one;
+                rt.offsetMin = Vector2.zero;
+                rt.offsetMax = Vector2.zero;
+                go.transform.SetAsLastSibling(); // 视频盖在遮罩上面
+                introVideoImage = go.GetComponent<RawImage>();
+                introVideoImage.color = Color.white;
+                introPlayer = go.AddComponent<VideoPlayer>();
+            }
 
-        introVideoImage = go.GetComponent<RawImage>();
-        introVideoImage.color = Color.white;
+            introPlayer.playOnAwake = false;
+            introPlayer.isLooping = false;
+            introPlayer.renderMode = VideoRenderMode.RenderTexture;
+            introPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
+            introPlayer.targetTexture = new RenderTexture(1920, 1080, 0);
+            introPlayer.loopPointReached += OnTimedVideoEnd;
+            introVideoImage.texture = introPlayer.targetTexture;
+        }
 
-        introPlayer = go.AddComponent<VideoPlayer>();
-        introPlayer.playOnAwake = false;
-        introPlayer.isLooping = false;
-        introPlayer.renderMode = VideoRenderMode.RenderTexture;
-        introPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
-        introPlayer.targetTexture = new RenderTexture(1920, 1080, 0);
-        introPlayer.loopPointReached += OnIntroVideoEnd;
-        introVideoImage.texture = introPlayer.targetTexture;
-
-        whiteGo.SetActive(false);
-        go.SetActive(false);
+        introCoverOverlay.gameObject.SetActive(false);
+        if (introVideoImage != null) introVideoImage.gameObject.SetActive(false);
     }
 
     void OnQuitGame()
@@ -442,6 +617,113 @@ public class UIManager : MonoBehaviour
         if (endingPanel != null) endingPanel.SetActive(true);
         if (endingTitle != null) endingTitle.text = title;
         if (endingDesc != null) endingDesc.text = desc;
+    }
+
+    /// <summary>播结局：有视频就先播视频（播完/跳过 → 结局面板），没视频直接出结局面板。</summary>
+    public void PlayEnding(VideoClip clip, string title, string desc)
+    {
+        if (clip == null) { ShowEnding(title, desc); return; }
+
+        if (introPlayer == null) BuildIntroVideo();
+        Time.timeScale = 0f;                          // 视频期间暂停游戏
+        if (hudRoot != null) hudRoot.SetActive(false);
+        if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(true);
+        if (introVideoImage != null)
+        {
+            introVideoImage.gameObject.SetActive(true);
+            introVideoImage.transform.SetAsLastSibling(); // 视频盖在遮罩上面
+        }
+
+        introPlayer.clip = clip;
+        introPlayer.isLooping = false;                // 播一遍就停
+        endingVideoPlaying = true;
+        endingSkipGuard = 0.5f;                       // 前 0.5 秒忽略跳过，避免进门按的 E 误跳
+        endingTimeout = 0f;
+        endingVideoOnDone = () => ShowEnding(title, desc);
+
+        if (introCo != null) StopCoroutine(introCo);
+        introCo = StartCoroutine(EndingPlayRoutine());
+    }
+
+    /// <summary>等结局视频准备好后播放；准备失败/超时则直接结束，绝不卡屏。</summary>
+    System.Collections.IEnumerator EndingPlayRoutine()
+    {
+        introPlayer.Prepare();
+        float t = 0f;
+        while (!introPlayer.isPrepared && t < 5f)
+        {
+            t += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        if (!endingVideoPlaying) yield break;         // 准备期间被跳过
+
+        if (introPlayer.isPrepared)
+            introPlayer.Play();
+        else
+            OnEndingVideoEnd();                        // 准备失败：直接结束，不卡屏
+    }
+
+    /// <summary>结局视频结束（或跳过/超时）：收起视频层 → 显示结局面板。</summary>
+    void OnEndingVideoEnd()
+    {
+        if (!endingVideoPlaying) return;
+        endingVideoPlaying = false;
+        if (introPlayer != null) introPlayer.Stop();
+        if (introVideoImage != null) introVideoImage.gameObject.SetActive(false);
+        if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(false);
+        var cb = endingVideoOnDone; endingVideoOnDone = null;
+        cb?.Invoke();
+    }
+
+    /// <summary>播结局二（静态图 CG）：显示全屏图 → 任意键/点击（或超时）→ 结局面板。没图直接出面板。</summary>
+    public void PlayEndingImage(Sprite sprite, string title, string desc)
+    {
+        if (sprite == null) { ShowEnding(title, desc); return; }
+
+        if (endingImageOverlay == null) BuildEndingImageOverlay();
+        Time.timeScale = 0f;                          // 图片期间暂停游戏
+        if (hudRoot != null) hudRoot.SetActive(false);
+        if (introCoverOverlay == null) BuildIntroVideo(); // 借黑色遮罩盖住地图
+        if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(true);
+
+        endingImageOverlay.sprite = sprite;
+        endingImageOverlay.gameObject.SetActive(true);
+        endingImageOverlay.transform.SetAsLastSibling(); // 图片盖在遮罩上面
+
+        endingImagePlaying = true;
+        endingImageGuard = 0.5f;                      // 前 0.5 秒忽略跳过，避免进门按的 E 误关
+        endingImageTimeout = 0f;
+        endingImageOnDone = () => ShowEnding(title, desc);
+    }
+
+    /// <summary>运行时搭一张全屏 UI Image（结局二图片 CG 层）。</summary>
+    void BuildEndingImageOverlay()
+    {
+        if (canvas == null) EnsureCanvas();
+        var go = new GameObject("EndingImage", typeof(RectTransform), typeof(Image));
+        go.transform.SetParent(canvas.transform, false);
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        go.transform.SetAsLastSibling();
+        endingImageOverlay = go.GetComponent<Image>();
+        endingImageOverlay.color = Color.white;
+        endingImageOverlay.raycastTarget = true;
+        endingImageOverlay.gameObject.SetActive(false);
+    }
+
+    /// <summary>结局图片看完（或跳过/超时）：收起图片层 → 显示结局面板。</summary>
+    void OnEndingImageEnd()
+    {
+        if (!endingImagePlaying) return;
+        endingImagePlaying = false;
+        if (endingImageOverlay != null) endingImageOverlay.gameObject.SetActive(false);
+        if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(false);
+        var cb = endingImageOnDone; endingImageOnDone = null;
+        cb?.Invoke();
     }
 
     /// <summary>显示过关弹窗并暂停（点「下一关」进下一关）。没手动搭过关弹窗就自动生成一个，避免误进结局。</summary>
@@ -603,28 +885,10 @@ public class UIManager : MonoBehaviour
         dialogueRoot.SetActive(false);
     }
 
-    /// <summary>播放一段剧情对话：逐字打出，暂停游戏，空格/回车/点击继续，结束恢复。</summary>
+    /// <summary>剧情对话框已停用（对话/抉择将重做）：不再弹对话框、不再暂停游戏，直接触发结束回调。</summary>
     public void PlayDialogue(string[] lines, System.Action onDone = null)
     {
-        if (lines == null || lines.Length == 0) { onDone?.Invoke(); return; }
-        if (dialogueRoot == null) BuildDialogue();
-
-        // 重入保护：若上一段对话还没结束而再次触发，先强制收尾，避免覆盖时间缩放状态、
-        // 导致对话结束后游戏卡死或对话框残留。这样多段对话（开场 + NPC + 剧情叠加）也稳。
-        if (dialogueActive)
-            EndDialogue();
-
-        dialogueLines = lines;
-        dialogueOnDone = onDone;
-        dialogueActive = true;
-        DialogueActive = true;
-        dialogueRoot.SetActive(true);
-
-        dialoguePrevTimeScale = Time.timeScale;
-        Time.timeScale = 0f;
-
-        dialogueSafetyTimer = 0f;
-        StartLine(0);
+        onDone?.Invoke();
     }
 
     void StartLine(int i)

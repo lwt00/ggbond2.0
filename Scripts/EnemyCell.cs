@@ -37,8 +37,8 @@ public class EnemyCell : MonoBehaviour
     public int roomIndex = 0;
 
     [Header("攻击")]
-    [Tooltip("攻击距离")]
-    public float attackRange = 1.3f;
+    [Tooltip("近战攻击距离（以敌人中心到玩家中心算）。玩家碰撞体较大，此值须大于「玩家半径 + 自身半径」才能稳定够到，故调大；不要通过改碰撞体解决，以免卡墙")]
+    public float attackRange = 2.0f;
     [Tooltip("两次攻击的最小间隔（秒）")]
     public float attackCooldown = 1.5f;
     [Tooltip("每次攻击对玩家造成的伤害")]

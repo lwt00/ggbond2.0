@@ -90,6 +90,6 @@ public class LevelData : ScriptableObject
     [Header("结局 / 剧情")]
     [Tooltip("是否最后一关（第 3 关：出口房传送门前会放红线抉择）")]
     public bool isFinalLevel = false;
-    [Tooltip("本关 NPC 对话（第 1 房有 NPC 时，靠近按 E 播放；可后补）")]
-    public List<string> npcDialogue = new List<string>();
+    [Tooltip("本关 NPC 对话（第 1 房有 NPC 时，靠近按 E 播放；每句填谁在说 + 内容；可后补）")]
+    public List<DialogueLine> npcDialogue = new List<DialogueLine>();
 }

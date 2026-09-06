@@ -78,7 +78,7 @@ public class PlayerController : MonoBehaviour
 
         UpdateRangeIndicator();
 
-        if (!UIManager.DialogueActive && stats != null && stats.attackUnlocked &&
+        if (!DialoguePanel.Active && !UIManager.DialogueActive && stats != null && stats.attackUnlocked &&
             (Input.GetKeyDown(KeyCode.Space) || Input.GetMouseButtonDown(0)))
         {
             TryAttack();

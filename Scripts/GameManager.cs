@@ -115,6 +115,7 @@ public class GameManager : MonoBehaviour
         if (rageEnemies.Count > 0) return;
 
         portalLocked = false;
+        if (MapGenerator.Instance != null) MapGenerator.Instance.ShowPortal(); // 清完守卫 → 传送门显现
         if (ui != null) ui.ShowMessage("传送阵解锁了");
         // 这里故意不触发剧情对话——按设计：传送阵解锁只是提示，剧情动画要等玩家自己走过来触发。
         // 之前的 PlayDialogue(RageWaveCleared) 会和 HitStop 抢 Time.timeScale，导致游戏永久定格。
@@ -281,7 +282,8 @@ public class GameManager : MonoBehaviour
     /// <summary>传送门是否可用（狂暴波没清完时锁定）。</summary>
     public bool CanUsePortal => !portalLocked;
 
-    /// <summary>传送门交互：无需集齐方糖，按 E 直接过关。第 1/2 关弹过关弹窗（进下一关），第 3 关走「人体死亡」结局。
+    /// <summary>传送门交互：无需集齐方糖，按 E 直接过关。第 1/2 关弹过关弹窗（进下一关）。
+    /// 第 3 关按最终抉择分支：YES（rageMode）→ 结局一视频 + 人体死亡；NO → 结局二图片 + 宿主存活。
     /// 全程一块糖都没吃就通关 → 追加彩蛋文案。</summary>
     public void TryEnterPortal()
     {
@@ -292,17 +294,23 @@ public class GameManager : MonoBehaviour
             ui.ShowClear("第" + CN[currentLevel] + "关 通过",
                 "击杀 " + player.stats.killCount + " · 吸收方糖 " + absorbedSugar + " / " + totalSugar);
         }
-        else
+        else if (rageMode)
         {
+            // 结局一（YES / 狂暴）：杀光守卫后进传送门
             string ending = StoryData.EndingCancerWins;
             if (absorbedSugar == 0) ending += "\n\n" + StoryData.EasterEggNoSugar;
-            // CG：先播全屏对白演出，播完再上结局面板（之后做动画 CG 时，把这里的对白换成视频播放即可）
-            if (ui != null) ui.PlayDialogue(StoryData.RageEndingCG, () => ui.ShowEnding("人体死亡", ending));
-            else ui.ShowEnding("人体死亡", ending);
+            if (ui != null) ui.PlayEnding(ui.endingVideo1, "人体死亡", ending);
+        }
+        else
+        {
+            // 结局二（NO / 和平）：不打怪直接进传送门 → 显示图片 CG
+            string ending = StoryData.EndingHostSurvives;
+            if (absorbedSugar == 0) ending += "\n\n" + StoryData.EasterEggNoSugar;
+            if (ui != null) ui.PlayEndingImage(ui.endingImage2, "宿主存活", ending);
         }
     }
 
-    /// <summary>祭坛献祭（第 3 关 NO / 和平分支）：播献祭 CG 对白 → 宿主存活结算。</summary>
+    /// <summary>[已停用] NO 分支现在直接走传送门（TryEnterPortal 里 rageMode==false 分支），不再摆祭坛。保留备用。</summary>
     public void OnAltarSacrifice()
     {
         string ending = StoryData.EndingHostSurvives;
@@ -317,7 +325,7 @@ public class GameManager : MonoBehaviour
         string desc = StoryData.GrowChoiceDesc;
         if (absorbedSugar == 0) desc += "\n\n" + StoryData.EasterEggNoSugar;
         ui.ShowChoice("最后的抉择", desc,
-            "GROW", "NO",
+            "YES", "NO",
             OnChooseGrow, OnChooseNo);
     }
 
@@ -353,7 +361,8 @@ public class GameManager : MonoBehaviour
         if (CameraFollow.Instance != null) CameraFollow.Instance.SetAmbience(peaceBackgroundColor);
         if (ui != null) ui.SetAmbienceOverlay(new Color(1f, 0.92f, 0.70f, 0.12f));
 
-        if (MapGenerator.Instance != null) MapGenerator.Instance.SpawnPeaceMode();
+        // 不打怪：直接把隐藏的传送门显示出来
+        if (MapGenerator.Instance != null) MapGenerator.Instance.ShowPortal();
         if (ui != null) ui.PlayDialogue(StoryData.PeaceIntro);
     }
 
