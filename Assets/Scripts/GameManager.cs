@@ -303,10 +303,14 @@ public class GameManager : MonoBehaviour
         }
         else
         {
-            // 结局二（NO / 和平）：不打怪直接进传送门 → 显示图片 CG
+            // 结局二（NO / 和平）：不打怪直接进传送门 → 先播结局视频，视频为空则回退图片 CG
             string ending = StoryData.EndingHostSurvives;
             if (absorbedSugar == 0) ending += "\n\n" + StoryData.EasterEggNoSugar;
-            if (ui != null) ui.PlayEndingImage(ui.endingImage2, "宿主存活", ending);
+            if (ui != null)
+            {
+                if (ui.endingVideo2 != null) ui.PlayEnding(ui.endingVideo2, "宿主存活", ending);
+                else ui.PlayEndingImage(ui.endingImage2, "宿主存活", ending);
+            }
         }
     }
 

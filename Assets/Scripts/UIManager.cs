@@ -75,10 +75,12 @@ public class UIManager : MonoBehaviour
     [Tooltip("显示视频的 RawImage（可自己拖，放在按钮下面做背景）。留空 = 运行时自动建一个全屏的")]
     public RawImage videoRawImage;
 
-    [Header("结局演出（结局一视频 / 结局二图片；留空 = 直接出结局面板）")]
+    [Header("结局演出（结局一/二视频，视频为空则回退图片，图片也为空则直接出结局面板）")]
     [Tooltip("结局一：YES 分支（杀光守卫后进传送门）后播放的视频")]
     public VideoClip endingVideo1;
-    [Tooltip("结局二：NO 分支（不打怪直接进传送门）后显示的图片（CG）")]
+    [Tooltip("结局二：NO 分支（不打怪直接进传送门）后播放的视频（优先于图片 CG）")]
+    public VideoClip endingVideo2;
+    [Tooltip("结局二备用：endingVideo2 为空时显示的图片（CG）")]
     public Sprite endingImage2;
 
     [Header("危险警示（屏幕边缘泛红）")]
