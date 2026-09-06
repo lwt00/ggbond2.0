@@ -70,7 +70,7 @@ public class UIManager : MonoBehaviour
     public bool playIntroVideo = true;
     [Tooltip("第 2 段：循环背景视频（第 1 段播完后，在开始界面后面循环播放，直到点「开始游戏」）。留空 = 无背景")]
     public VideoClip loopVideo;
-    [Tooltip("第 3 段：点「开始游戏」后播放的过场动画（强制看完、不可跳过，播完进游戏）。留空 = 跳过")]
+    [Tooltip("第 3 段：点「开始游戏」后播放的过场动画（3 秒后任意键可跳过，右下角有提示）。留空 = 跳过")]
     public VideoClip gameStartVideo;
     [Tooltip("显示视频的 RawImage（可自己拖，放在按钮下面做背景）。留空 = 运行时自动建一个全屏的")]
     public RawImage videoRawImage;
@@ -111,10 +111,12 @@ public class UIManager : MonoBehaviour
     private float endingSkipGuard;        // 前 0.5 秒忽略跳过，避免进门按的 E 立刻把视频跳掉
     private float endingTimeout;          // 兜底计时：超时自动结束，防视频卡住一直黑屏
 
-    // 「开始游戏」过场动画（独立路径）：强制看完、不响应跳过；只受自己的看门狗超时保护，
-    // 不走 introVideoPlaying 的 15 秒兜底强切，两者互不干扰
+    // 「开始游戏」过场动画（独立路径）：3 秒后任意键可跳过（右下角淡入提示），
+    // 只受自己的看门狗超时保护，不走 introVideoPlaying 的 15 秒兜底强切，两者互不干扰
     private bool startAnimPlaying;
     private Coroutine startAnimCo;
+    private TextMeshProUGUI startAnimSkipHint; // 「按任意键跳过」提示（自动生成，右下角）
+    private const float StartAnimSkipAfter = 3f; // 前 3 秒不响应跳过（防误触）
 
     // 结局图片（结局二用静态 CG；复用 introCoverOverlay 的黑色遮罩）
     private bool endingImagePlaying;       // 是否在显示结局图片
@@ -323,14 +325,15 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    // ---------- 「开始游戏」过场动画（独立播放路径，强制看完） ----------
+    // ---------- 「开始游戏」过场动画（独立播放路径，3 秒后可跳过） ----------
 
-    /// <summary>点「开始游戏」后播过场动画：全屏黑底播放，期间不响应任何跳过输入，
+    /// <summary>点「开始游戏」后播过场动画：全屏黑底播放，3 秒后任意键/点击可跳过（右下角淡入提示），
     /// 播完（或看门狗超时）才真正进游戏。与开场/结局视频的状态机完全独立。</summary>
     void StartGameStartAnim()
     {
         if (startAnimPlaying) return; // 防重复触发
         if (introPlayer == null) BuildIntroVideo();
+        BuildStartAnimSkipHint();
 
         Time.timeScale = 0f;                              // 动画期间暂停游戏
         if (hudRoot != null) hudRoot.SetActive(false);
@@ -340,6 +343,12 @@ public class UIManager : MonoBehaviour
             introVideoImage.gameObject.SetActive(true);
             introVideoImage.transform.SetAsLastSibling(); // 动画盖在遮罩上面
         }
+        if (startAnimSkipHint != null)
+        {
+            startAnimSkipHint.gameObject.SetActive(true);
+            startAnimSkipHint.transform.SetAsLastSibling(); // 提示盖在动画上面
+            startAnimSkipHint.canvasRenderer.SetAlpha(0f);  // 从全透明开始，3 秒后淡入
+        }
 
         introPlayer.clip = gameStartVideo;
         introPlayer.isLooping = false;                    // 播一遍就停
@@ -347,6 +356,50 @@ public class UIManager : MonoBehaviour
 
         if (startAnimCo != null) StopCoroutine(startAnimCo);
         startAnimCo = StartCoroutine(GameStartAnimRoutine((float)gameStartVideo.length));
+    }
+
+    /// <summary>自动生成「按任意键跳过」提示：右下角，半透明白色，默认全透明（由播放协程控制透明度）。</summary>
+    void BuildStartAnimSkipHint()
+    {
+        if (startAnimSkipHint != null) return;
+        if (canvas == null) return;
+
+        var go = new GameObject("StartAnimSkipHint", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        var txt = go.GetComponent<TextMeshProUGUI>();
+        // 挂在视频层同父节点下，保证层级能盖住动画
+        txt.transform.SetParent(introVideoImage != null ? introVideoImage.transform.parent : canvas.transform, false);
+
+        var rt = txt.rectTransform;
+        rt.anchorMin = new Vector2(1f, 0f);
+        rt.anchorMax = new Vector2(1f, 0f);
+        rt.pivot = new Vector2(1f, 0f);
+        rt.anchoredPosition = new Vector2(-28f, 22f);
+        rt.sizeDelta = new Vector2(320f, 44f);
+
+        txt.text = "按任意键跳过";
+        txt.fontSize = 22;
+        txt.alignment = TextAlignmentOptions.Right;
+        txt.color = new Color(1f, 1f, 1f, 1f);
+        if (fontAsset != null) txt.font = fontAsset;
+        txt.raycastTarget = false;
+
+        startAnimSkipHint = txt;
+    }
+
+    /// <summary>更新跳过提示透明度：前 3 秒全透明；3 秒后淡入并做呼吸闪烁（透明度 0.4~0.8 波动）。</summary>
+    void UpdateStartAnimSkipHint(float elapsed)
+    {
+        if (startAnimSkipHint == null) return;
+        float a;
+        if (elapsed < StartAnimSkipAfter)
+            a = 0f;
+        else
+        {
+            float fadeIn = Mathf.Clamp01((elapsed - StartAnimSkipAfter) / 0.6f); // 0.6 秒淡入
+            float breath = 0.6f + Mathf.Sin(elapsed * 3f) * 0.2f;               // 0.4~0.8 呼吸
+            a = fadeIn * breath;
+        }
+        startAnimSkipHint.canvasRenderer.SetAlpha(a);
     }
 
     /// <summary>等动画准备好 → 播放 → 等播完。看门狗超时 = 视频时长×2 + 10 秒，防卡屏但远大于正常时长，不会腰斩。</summary>
@@ -370,7 +423,7 @@ public class UIManager : MonoBehaviour
 
         introPlayer.Play();
 
-        // 等播放真正开始（首帧可能要几帧），再等它播完
+        // 等播放真正开始（首帧可能要几帧）
         float startWait = 0f;
         while (!introPlayer.isPlaying && startWait < 3f)
         {
@@ -379,18 +432,33 @@ public class UIManager : MonoBehaviour
         }
         if (!startAnimPlaying) yield break;
 
-        float watchdog = 0f;
+        // 主循环：跳过计时 / 提示透明度 / 播完检测 / 看门狗，四件事同一循环处理
+        float elapsed = 0f;
         float limit = Mathf.Max(clipLength * 2f + 10f, 30f); // 28.8 秒动画 → 约 67.6 秒兜底
-        while (introPlayer.isPlaying && watchdog < limit)
+        while (true)
         {
-            watchdog += Time.unscaledDeltaTime;
+            elapsed += Time.unscaledDeltaTime;
+            UpdateStartAnimSkipHint(elapsed);
+
+            // 3 秒后任意键 / 鼠标点击 → 跳过动画直接进游戏（前 3 秒无效，防误触）
+            if (elapsed >= StartAnimSkipAfter &&
+                (Input.anyKeyDown || Input.GetMouseButtonDown(0)))
+            {
+                EndGameStartAnim();
+                yield break;
+            }
+
+            // 播完（放过 1 秒避免首帧 isPlaying 未就绪误判）或看门狗超时 → 正常结束
+            if ((elapsed > 1f && !introPlayer.isPlaying) || elapsed >= limit)
+                break;
+
             yield return null;
         }
 
         if (startAnimPlaying) EndGameStartAnim();
     }
 
-    /// <summary>过场动画结束：收起视频层和遮罩，恢复正常游玩流程。</summary>
+    /// <summary>过场动画结束：收起视频层、提示和遮罩，恢复正常游玩流程。</summary>
     void EndGameStartAnim()
     {
         if (!startAnimPlaying) return;
@@ -399,6 +467,7 @@ public class UIManager : MonoBehaviour
         if (introPlayer != null) introPlayer.Stop();
         if (introVideoImage != null) introVideoImage.gameObject.SetActive(false);
         if (introCoverOverlay != null) introCoverOverlay.gameObject.SetActive(false);
+        if (startAnimSkipHint != null) startAnimSkipHint.gameObject.SetActive(false);
         StartGameplay();
     }
 
